@@ -1,0 +1,27 @@
+FROM docker.io/rocm/pytorch:rocm5.4.2_ubuntu20.04_py3.8_pytorch_2.0.0_preview
+
+# Setup llm-foundry
+
+RUN git clone https://github.com/mosaicml/llm-foundry.git /src/llm-foundry
+
+RUN cd /src/llm-foundry && \
+    pip install . && \
+    pip3 install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.4.2 && \
+    pip install numpy==1.23.5
+
+# Setup flash-attention
+RUN git clone https://github.com/ROCmSoftwarePlatform/flash-attention.git /src/flash-attention
+ 
+RUN cd /src/flash-attention && \
+    git submodule update --init && \
+    patch /opt/conda/envs/py_3.8/lib/python3.8/site-packages/torch/utils/hipify/hipify_python.py hipify_patch.patch && \
+    MAX_JOBS=128 python setup.py install
+
+# Prepare the data, convert dataset into MDS format
+RUN cd /src/llm-foundry/scripts && \
+    python data_prep/convert_dataset_hf.py \
+	  --dataset c4 --data_subset en \
+	  --out_root my-copy-c4 --splits train_small val_small \
+	  --concat_tokens 2048 --tokenizer EleutherAI/gpt-neox-20b --eos_text '<|endoftext|>'
+
+COPY pretrain_mpt.sh /src/llm-foundry/scripts/
